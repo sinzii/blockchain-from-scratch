@@ -52,13 +52,83 @@ pub struct Atm {
     keystroke_register: Vec<Key>,
 }
 
+trait KeyStroke {
+    fn to_number(&self) -> u64;
+    fn to_hash(&self) -> u64;
+}
+
+impl KeyStroke for Vec<Key> {
+    fn to_number(&self) -> u64 {
+        let mut pin_str: String = String::from("");
+        for key in self {
+            match key {
+                Key::One => { pin_str.push_str("1") }
+                Key::Two => { pin_str.push_str("2") }
+                Key::Three => { pin_str.push_str("3") }
+                Key::Four => { pin_str.push_str("4") }
+                Key::Enter => { break; }
+            }
+        }
+
+        u64::from_str_radix(&pin_str, 10).unwrap()
+    }
+
+    fn to_hash(&self) -> u64 {
+        crate::hash(&self)
+    }
+}
+
 impl StateMachine for Atm {
     // Notice that we are using the same type for the state as we are using for the machine this time.
     type State = Self;
     type Transition = Action;
 
     fn next_state(starting_state: &Self::State, t: &Self::Transition) -> Self::State {
-        todo!("Exercise 4")
+        let mut next_state = starting_state.clone();
+
+        match t {
+            Action::SwipeCard(pin) => {
+                next_state.expected_pin_hash = Auth::Authenticating(pin.clone());
+            }
+            Action::PressKey(key) => {
+                match starting_state.expected_pin_hash {
+                    Auth::Authenticating(pin) => {
+                        if key.clone() == Key::Enter {
+                            let entered_pin = next_state.keystroke_register.to_hash();
+                            if entered_pin == pin {
+                                next_state.expected_pin_hash = Auth::Authenticated;
+                            } else {
+                                next_state.expected_pin_hash = Auth::Waiting;
+                            }
+
+                            next_state.keystroke_register.clear();
+                        } else {
+                            next_state.keystroke_register.push(key.clone());
+                        }
+                    }
+                    Auth::Authenticated => {
+                        if key.clone() == Key::Enter {
+                            let to_widthdraw = next_state.keystroke_register.to_number();
+                            if to_widthdraw > next_state.cash_inside {
+                            } else {
+                                next_state.cash_inside -= to_widthdraw;
+                            }
+
+                            next_state.keystroke_register.clear();
+                            next_state.expected_pin_hash = Auth::Waiting;
+                        } else {
+                            next_state.keystroke_register.push(key.clone());
+                        }
+                    }
+                    _ => {
+                        next_state.keystroke_register.clear()
+                    }
+                }
+            }
+        }
+
+
+        next_state
     }
 }
 
