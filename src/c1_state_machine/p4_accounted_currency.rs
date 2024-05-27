@@ -39,13 +39,88 @@ pub enum AccountingTransaction {
     },
 }
 
+impl AccountedCurrency {
+    fn mint(next_state: &mut Balances, minter: User, amount: u64) {
+        let current_balance = next_state.get(&minter).unwrap_or(&0);
+        let next_balance = current_balance.checked_add(amount).unwrap();
+        if next_balance == 0 {
+            return;
+        }
+
+        next_state.insert(minter, next_balance);
+    }
+
+    fn burn(next_state: &mut Balances, burner: User, amount: u64) {
+        let current_balance = next_state.get(&burner).unwrap_or(&0);
+        let left_balance = current_balance.saturating_sub(amount);
+
+        if left_balance > 0 {
+            next_state.insert(burner, left_balance);
+        } else {
+            next_state.remove(&burner);
+        }
+    }
+
+    fn transfer(next_state: &mut Balances, sender: User, receiver: User, amount: u64) {
+        if amount == 0 || sender == receiver {
+            return;
+        }
+
+        let maybe_sender_balance = next_state.get(&sender);
+        let receiver_balance = next_state.get(&receiver).unwrap_or(&0);
+
+        if maybe_sender_balance.is_none() {
+            return;
+        }
+
+        let sender_balance = maybe_sender_balance.unwrap();
+        if *sender_balance < amount {
+            return;
+        }
+
+        let sender_left = sender_balance.checked_sub(amount).unwrap();
+        let receiver_left = receiver_balance.checked_add(amount).unwrap();
+
+        if sender_left > 0 {
+            next_state.insert(sender, sender_left);
+        } else {
+            next_state.remove(&sender);
+        }
+
+        next_state.insert(receiver, receiver_left);
+    }
+}
+
 /// We model this system as a state machine with three possible transitions
 impl StateMachine for AccountedCurrency {
     type State = Balances;
     type Transition = AccountingTransaction;
 
     fn next_state(starting_state: &Balances, t: &AccountingTransaction) -> Balances {
-        todo!("Exercise 1")
+        let mut next_state = starting_state.clone();
+        match t {
+            AccountingTransaction::Mint { minter, amount } =>
+                Self::mint(
+                    &mut next_state,
+                    minter.clone(),
+                    amount.clone()
+                ),
+            AccountingTransaction::Burn { burner, amount } =>
+                Self::burn(
+                    &mut next_state,
+                    burner.clone(),
+                    amount.clone()
+                ),
+            AccountingTransaction::Transfer { sender, receiver, amount } =>
+                Self::transfer(
+                    &mut next_state,
+                    sender.clone(),
+                    receiver.clone(),
+                    amount.clone()
+                )
+        }
+
+        next_state
     }
 }
 
