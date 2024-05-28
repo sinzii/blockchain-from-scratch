@@ -5,6 +5,7 @@
 
 use super::{StateMachine, User};
 use std::collections::HashSet;
+use std::panic::resume_unwind;
 
 /// This state machine models a multi-user currency system. It tracks a set of bills in
 /// circulation, and updates that set when money is transferred.
@@ -88,13 +89,78 @@ pub enum CashTransaction {
     },
 }
 
+fn check_bill_uniqueness(bills: &Vec<Bill>) -> bool {
+    let mut serials: HashSet<u64> = HashSet::new();
+    bills.iter().for_each(|b| {
+        serials.insert(b.serial);
+    });
+
+    serials.len() == bills.len()
+}
+
+
+impl DigitalCashSystem {
+    fn mint(state: &mut State, minter: User, amount: u64) {
+        if amount == 0 { return; }
+
+        state.add_bill(Bill { owner: minter, amount, serial: state.next_serial })
+    }
+
+    fn transfer(state: &mut State, spends: Vec<Bill>, receives: Vec<Bill>) {
+        if !check_bill_uniqueness(&spends) || !check_bill_uniqueness(&receives) {
+            return;
+        }
+
+        let total_spend = spends.iter().fold(0u64, |acc, b| acc.checked_add(b.amount).unwrap_or(0));
+        let total_receive = receives.iter().fold(0u64, |acc, b| acc.checked_add(b.amount).unwrap_or(u64::MAX));
+
+        if total_spend < total_receive { return; }
+
+        let all_serials: Vec<u64> = state.bills.iter().map(|b| b.serial).collect();
+        let spend_serials: Vec<u64> = spends.iter().map(|b| b.serial).collect();
+        let mut receive_serials: Vec<u64> = receives.iter().map(|b| b.serial).collect();
+        receive_serials.sort();
+
+        if !receive_serials.iter().enumerate().all(|(idx, serial)| *serial == state.next_serial + idx as u64) {
+            return;
+        }
+
+        let valid_spend_serials = spends.iter().all(|b| {
+            let bill = state.bills.iter().find(|sb| sb.serial == b.serial);
+            if let Some(bill_amount) = bill {
+                return bill_amount.amount == b.amount && b.amount > 0;
+            }
+
+            false
+        });
+        let valid_receive_serials = receives.iter().all(|b| !all_serials.contains(&b.serial) && b.amount > 0);
+
+        if !valid_spend_serials || !valid_receive_serials { return; }
+
+        state.bills.retain(|b| !spend_serials.contains(&b.serial));
+
+        receives.iter().for_each(|b| {
+            state.add_bill(b.clone());
+        });
+    }
+}
+
+
 /// We model this system as a state machine with two possible transitions
 impl StateMachine for DigitalCashSystem {
     type State = State;
     type Transition = CashTransaction;
 
     fn next_state(starting_state: &Self::State, t: &Self::Transition) -> Self::State {
-        todo!("Exercise 1")
+        let mut state = starting_state.clone();
+        match t {
+            CashTransaction::Mint { minter, amount } =>
+                Self::mint(&mut state, minter.clone(), amount.clone()),
+            CashTransaction::Transfer { spends, receives } =>
+                Self::transfer(&mut state, spends.clone(), receives.clone()),
+        }
+
+        state
     }
 }
 
